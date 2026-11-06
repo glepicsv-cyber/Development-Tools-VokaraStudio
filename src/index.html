@@ -91,6 +91,10 @@
           <button class="round-btn" id="beatStopBtn" title="Về đầu bài" aria-label="Về đầu bài">
             <svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
           </button>
+          <button class="round-btn mic" id="micBtn" title="Bật mic (M)" aria-label="Bật mic" aria-pressed="false">
+            <svg viewBox="0 0 24 24" class="icon-mic-on" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM6.500 11.500h-1.500a7 7 0 0 0 6.250 6.950V21h1.500v-2.550A7 7 0 0 0 19 11.500h-1.500a5.500 5.500 0 0 1-11 0z"/></svg>
+            <svg viewBox="0 0 24 24" class="icon-mic-off" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM6.500 11.500h-1.500a7 7 0 0 0 6.250 6.950V21h1.500v-2.550A7 7 0 0 0 19 11.500h-1.500a5.500 5.500 0 0 1-11 0z"/><path d="M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
           <button class="round-btn record" id="recordBtn" title="Ghi âm (R)" aria-label="Ghi âm">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/></svg>
           </button>
@@ -153,7 +157,10 @@
       </section>
 
       <section class="panel-section">
-        <h2>Mic</h2>
+        <div class="section-head">
+          <h2>Mic</h2>
+          <label class="switch"><input type="checkbox" id="micSwitch"><span></span><em class="sr">Bật hoặc tắt mic</em></label>
+        </div>
         <label class="field">Thiết bị
           <select id="inputSelect"></select>
         </label>

@@ -52,6 +52,7 @@ export class PitchRoll {
     stripe.addColorStop(0.55, 'rgba(168,85,247,0.06)');
     stripe.addColorStop(1, 'rgba(255,95,162,0.045)');
 
+    const labelStep = Math.ceil(13 / semitoneHeight);
     g.font = '11px "Segoe UI", sans-serif';
     g.textBaseline = 'middle';
     for (let midi = lowest; midi <= highest; midi++) {
@@ -65,6 +66,11 @@ export class PitchRoll {
       if (midi === this.activeNote) {
         g.fillStyle = 'rgba(255,157,46,0.2)';
         g.fillRect(GUTTER, y - semitoneHeight / 2, plotWidth, semitoneHeight);
+      }
+      // Hàng thấp thì chỉ ghi nhãn cách quãng để chữ không chồng lên nhau.
+      if (midi !== this.activeNote) {
+        if (midi % labelStep !== 0) continue;
+        if (this.activeNote !== null && Math.abs(midi - this.activeNote) < labelStep) continue;
       }
       g.fillStyle = midi === this.activeNote ? TOKENS.accent : inScale ? TOKENS.muted : TOKENS.faint;
       g.textAlign = 'right';

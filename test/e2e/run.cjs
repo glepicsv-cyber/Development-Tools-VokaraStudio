@@ -113,6 +113,8 @@ async function main() {
 
   // --- Bật mic và nhận tín hiệu qua worklet thật ---
   await run(`await __vokara.karaoke.startMic(); __vokara.engine.setMonitor(false);`);
+  const micSettings = await run(`return __vokara.engine.mic.stream.getAudioTracks()[0].getSettings();`);
+  check('Mic lấy tín hiệu gốc, không qua khử vọng, khử ồn hay tự chỉnh âm lượng', micSettings.echoCancellation === false && micSettings.noiseSuppression === false && micSettings.autoGainControl === false, JSON.stringify({ aec: micSettings.echoCancellation, ns: micSettings.noiseSuppression, agc: micSettings.autoGainControl }));
   await run(`
     const k = __vokara.karaoke;
     k.state.root = 0; k.state.scale = 'chromatic';
@@ -165,7 +167,12 @@ async function main() {
   await run(`__vokara.karaoke.applyPreset(${'(await import("./ui/common.js")).PRESETS[1]'});`);
   await run(`__vokara.engine.playBeat();__vokara.karaoke.refreshTransport();`);
   await sleep(1200);
-  const playing = await run(`return { pos: __vokara.engine.beatPosition(), lyric: document.getElementById('lyricNow').textContent };`);
+  const playing = await run(`
+    const pos = __vokara.engine.beatPosition();
+    const end = performance.now() + 1500;
+    while (!document.getElementById('lyricNow').textContent && performance.now() < end) await new Promise((r) => setTimeout(r, 30));
+    return { pos, lyric: document.getElementById('lyricNow').textContent };
+  `);
   check('Nhạc nền đang phát và thời gian chạy', playing.pos > 0.8 && playing.pos < 2, `${playing.pos.toFixed(2)} s`);
   check('Lời bài hát chạy theo nhạc', playing.lyric === 'Dòng thứ nhất của bài hát', playing.lyric);
   await shot('03-beat-lyrics');
@@ -232,7 +239,7 @@ async function main() {
     e.root = 0; e.scale = 'chromatic';
     e.strength = 1; e.flatten = 1;
   `);
-  const analysis = await run(`const p = __vokara.editor.selectedTrack.pitch; return { notes: p.notes.length, first: p.notes[0] && p.notes[0].pitch };`);
+  const analysis = await run(`const p = __vokara.editor.selectedTrack.pitch; const main = p.notes.reduce((best, n) => (n.end - n.start > best.end - best.start ? n : best)); return { notes: p.notes.length, first: main.pitch };`);
   check('Phân tích ra nốt từ giọng mộc', analysis.notes >= 1 && Math.abs(analysis.first - 57.35) < 0.15, `${analysis.notes} nốt, ${analysis.first && analysis.first.toFixed(2)}`);
 
   await run(`
@@ -240,7 +247,7 @@ async function main() {
     e.autoFix();
     await e.renderDone;
     const t = e.selectedTrack;
-    t.pitch.notes[0].shift += 2;
+    t.pitch.notes.reduce((best, n) => (n.end - n.start > best.end - best.start ? n : best)).shift += 2;
     await e.scheduleRender(t, 0);
   `);
   const fixed = await run(`
@@ -252,7 +259,8 @@ async function main() {
     values.sort((x, y) => x - y);
     return values[values.length >> 1];
   `);
-  check('Sửa nốt: tự chỉnh rồi kéo +2 bán cung ra đúng B3', Math.abs(fixed - 59) < 0.1, `MIDI ${fixed.toFixed(3)}`);
+  const noteSpans = await run(`return __vokara.editor.selectedTrack.pitch.notes.map((n) => n.end - n.start);`);
+  check('Sửa nốt: tự chỉnh rồi kéo +2 bán cung ra đúng B3', Math.abs(fixed - 59) < 0.1, `MIDI ${fixed.toFixed(3)}; ${noteSpans.length} nốt, dài ${noteSpans.slice(0, 6).join('/')} khung`);
   await sleep(300);
   await shot('05-editor-pitch');
 
@@ -361,7 +369,7 @@ async function main() {
   // Kéo một nốt lên 2 ô trên bảng sửa nốt.
   const noteGeom = await run(`
     const e = __vokara.editor; const t = e.selectedTrack; const c = document.getElementById('edPitch'); const r = c.getBoundingClientRect();
-    const n = t.pitch.notes[0]; const sr = e.sampleRate; const hop = t.pitch.analysis.hop;
+    const n = t.pitch.notes.reduce((best, n) => (n.end - n.start > best.end - best.start ? n : best)); const sr = e.sampleRate; const hop = t.pitch.analysis.hop;
     const mid = (n.start + n.end) / 2;
     const x = e.xOf((mid * hop + t.offset) / sr);
     const y = r.height / 2 - (n.pitch + n.shift - e.pitchView.center) * e.pitchView.semitoneHeight;
@@ -371,7 +379,7 @@ async function main() {
   await run(`await __vokara.editor.renderDone;`);
   await sleep(250);
   const dragged = await run(`
-    const e = __vokara.editor; const n = e.selectedTrack.pitch.notes[0];
+    const e = __vokara.editor; const n = e.selectedTrack.pitch.notes.reduce((best, n) => (n.end - n.start > best.end - best.start ? n : best));
     const { analyzePitch } = await import('./dsp/yin.js');
     const a = analyzePitch(e.selectedTrack.channels[0], e.sampleRate, { minF0: 70, maxF0: 900 });
     const v = []; for (let i = a.f0.length * 0.3 | 0; i < a.f0.length * 0.8; i++) if (a.f0[i] > 0) v.push(69 + 12 * Math.log2(a.f0[i] / 440));
@@ -381,8 +389,107 @@ async function main() {
   check('Kéo nốt bằng chuột: nốt khớp bán cung và audio đổi theo', Math.abs(dragged.target - 61) < 0.01 && Math.abs(dragged.measured - 61) < 0.1, `đích ${dragged.target.toFixed(2)}, đo ${dragged.measured.toFixed(2)}`);
   await run(`document.activeElement.blur();`);
   await pressKey('Z', ['control']);
-  const undone = await run(`const n = __vokara.editor.selectedTrack.pitch.notes[0]; return n.pitch + n.shift;`);
+  const undone = await run(`const n = __vokara.editor.selectedTrack.pitch.notes.reduce((best, n) => (n.end - n.start > best.end - best.start ? n : best)); return n.pitch + n.shift;`);
   check('Ctrl+Z hoàn tác cú kéo nốt', Math.abs(undone - 59) < 0.01, undone.toFixed(2));
+
+  // --- Sửa nốt liên tiếp khi lần dựng trước chưa xong: nốt và tiếng phải luôn khớp nhau ---
+  const measurePitch = `
+    const { analyzePitch } = await import('./dsp/yin.js');
+    const measure = (e) => {
+      const a = analyzePitch(e.selectedTrack.channels[0], e.sampleRate, { minF0: 70, maxF0: 900 });
+      const note = e.selectedTrack.pitch.notes.reduce((best, n) => (n.end - n.start > best.end - best.start ? n : best));
+      const values = [];
+      for (let i = note.start + 10; i < note.end - 10; i++) if (a.f0[i] > 0) values.push(69 + 12 * Math.log2(a.f0[i] / 440));
+      values.sort((x, y) => x - y);
+      return { target: note.pitch + note.shift, audio: values[values.length >> 1] };
+    };
+    const longest = (e) => e.selectedTrack.pitch.notes.reduce((best, n) => (n.end - n.start > best.end - best.start ? n : best));
+  `;
+  await run(`${measurePitch}
+    const e = __vokara.editor; const t = e.selectedTrack;
+    e.selectedTrack.pitch.notes.forEach((n) => { n.shift = Math.round(n.pitch) - n.pitch; n.flatten = 1; });
+    await e.scheduleRender(t, 0);
+    e.undoStack.length = 0;
+  `);
+  const base = await run(`${measurePitch} return measure(__vokara.editor);`);
+  check('Trước khi thử: nốt và tiếng khớp nhau', Math.abs(base.target - base.audio) < 0.15, JSON.stringify(base));
+
+  // Giống hai lần kéo chuột nhanh: lần sau bắt đầu khi lần trước còn đang dựng.
+  const quick = await run(`${measurePitch}
+    const e = __vokara.editor; const t = e.selectedTrack; const n = longest(e);
+    e.pushUndo('Kéo 1'); n.shift += 2; e.scheduleRender(t, 0);
+    await new Promise((r) => setTimeout(r, 5));
+    e.pushUndo('Kéo 2'); longest(e).shift += 2;
+    await e.scheduleRender(e.selectedTrack, 0);
+    return measure(e);
+  `);
+  check('Hai lần sửa nhanh liên tiếp: tiếng theo lần cuối', Math.abs(quick.target - base.target - 4) < 0.01 && Math.abs(quick.audio - quick.target) < 0.15, JSON.stringify(quick));
+
+  const undoQuick = await run(`${measurePitch}
+    const e = __vokara.editor;
+    e.undo();
+    await e.renderDone;
+    return measure(e);
+  `);
+  check('Hoàn tác về giữa hai lần sửa: tiếng khớp với nốt', Math.abs(undoQuick.target - base.target - 2) < 0.01 && Math.abs(undoQuick.audio - undoQuick.target) < 0.15, JSON.stringify(undoQuick));
+
+  const redoQuick = await run(`${measurePitch}
+    const e = __vokara.editor;
+    e.redo();
+    await e.renderDone;
+    return measure(e);
+  `);
+  check('Làm lại: tiếng khớp với nốt', Math.abs(redoQuick.target - base.target - 4) < 0.01 && Math.abs(redoQuick.audio - redoQuick.target) < 0.15, JSON.stringify(redoQuick));
+
+  const undoAll = await run(`${measurePitch}
+    const e = __vokara.editor;
+    e.undo(); await e.renderDone; e.undo(); await e.renderDone;
+    return measure(e);
+  `);
+  check('Hoàn tác hết: tiếng về đúng lúc đầu', Math.abs(undoAll.target - base.target) < 0.01 && Math.abs(undoAll.audio - base.audio) < 0.15, JSON.stringify(undoAll));
+
+  // Lần dựng bị thay thế không được làm người gọi chờ mãi.
+  const superseded = await run(`${measurePitch}
+    const e = __vokara.editor; const t = e.selectedTrack;
+    const first = e.scheduleRender(t, 200);
+    const second = e.scheduleRender(t, 0);
+    const timeout = new Promise((r) => setTimeout(() => r('hết giờ'), 8000));
+    return { first: await Promise.race([first.then(() => 'xong'), timeout]), second: await Promise.race([second.then(() => 'xong'), timeout]) };
+  `);
+  check('Lần dựng bị thay thế vẫn hoàn thành lời hứa', superseded.first === 'xong' && superseded.second === 'xong', JSON.stringify(superseded));
+
+  // Sửa nốt rồi cắt/câm ngay: phần âm thanh chốt lại phải có sửa đổi đó, không được mất.
+  const bakeEdit = await run(`${measurePitch}
+    const e = __vokara.editor; const t = e.selectedTrack; const n = longest(e);
+    const target = n.pitch + n.shift + 1;
+    const hop = t.pitch.analysis.hop; const sr = e.sampleRate;
+    const offset = t.offset / sr;
+    e.pushUndo('Kéo'); n.shift += 1; e.scheduleRender(t, 140);
+    e.selection = { start: offset + 0.02, end: offset + 0.03 };
+    await e.runOp('silence');
+    await e.renderDone;
+    const a = analyzePitch(e.selectedTrack.channels[0], sr, { minF0: 70, maxF0: 900 });
+    const values = [];
+    for (let i = n.start + 10; i < n.end - 10; i++) if (a.f0[i] > 0) values.push(69 + 12 * Math.log2(a.f0[i] / 440));
+    values.sort((x, y) => x - y);
+    e.selection = null;
+    return { target, audio: values[values.length >> 1] };
+  `);
+  check('Sửa nốt rồi Câm ngay: sửa đổi không bị mất', Math.abs(bakeEdit.audio - bakeEdit.target) < 0.15, JSON.stringify(bakeEdit));
+  await run("__vokara.editor.undo(); await __vokara.editor.renderDone;");
+  const afterBake = await run(`${measurePitch} return measure(__vokara.editor);`);
+  check('Hoàn tác thao tác Câm: nốt và tiếng vẫn khớp', Math.abs(afterBake.target - afterBake.audio) < 0.15, JSON.stringify(afterBake));
+
+  // Sửa nốt rồi xuất file ngay: file phải có sửa đổi đó.
+  const exportEdit = await run(`${measurePitch}
+    const e = __vokara.editor; const t = e.selectedTrack; const n = longest(e);
+    const before = e.selectedTrack.channels;
+    e.pushUndo('Kéo'); n.shift += 1; e.scheduleRender(t, 140);
+    await e.exportMix('wav16', 'all');
+    return { replaced: e.selectedTrack.channels !== before, ...measure(e) };
+  `);
+  check('Sửa nốt rồi Xuất ngay: dựng xong mới xuất', exportEdit.replaced && Math.abs(exportEdit.audio - exportEdit.target) < 0.15, JSON.stringify(exportEdit));
+  await run("__vokara.editor.undo(); await __vokara.editor.renderDone;");
 
   // Kéo chọn trên sóng âm rồi bấm nút Câm trên thanh công cụ.
   await run(`const e = __vokara.editor; e.view.start = 0; e.view.pps = document.getElementById('edCanvas').clientWidth / Math.max(4, e.duration * 1.04); e.invalidate();`);

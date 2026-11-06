@@ -75,6 +75,7 @@ window.addEventListener('keydown', (event) => {
   }
   if (!onEditor) {
     if (key === 'r' && !event.ctrlKey) karaoke.toggleRecord();
+    if (key === 'm' && !event.ctrlKey) karaoke.toggleMic();
     return;
   }
   if (event.ctrlKey) {

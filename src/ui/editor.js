@@ -16,6 +16,9 @@ const UNDO_BYTES = 1.5 * 1024 * 1024 * 1024;
 const TRACK_COLORS = ['#16e0ff', '#ff9d2e', '#b388ff', '#4ade80', '#ff6fa8', '#60a5fa'];
 const db2gain = (db) => Math.pow(10, db / 20);
 
+/** Dấu vân tay các sửa đổi nốt. Khác với dấu của audio đã dựng nghĩa là nốt và tiếng đang lệch nhau. */
+const noteSignature = (notes) => notes.map((note) => `${note.id}:${note.shift}:${note.flatten}`).join('|');
+
 const peakCache = new WeakMap();
 
 function getPeaks(channels) {
@@ -65,6 +68,8 @@ export class EditorView {
     this.strength = 1;
     this.flatten = 0.5;
     this.renderToken = 0;
+    this.renderWaiters = [];
+    this.renderDone = Promise.resolve();
     this.dirtyCanvas = true;
     this.buildControls();
     this.bindEvents();
@@ -426,7 +431,12 @@ export class EditorView {
     this.tracks = state.tracks;
     this.selectedId = state.selectedId;
     this.selectedNotes.clear();
+    clearTimeout(this.renderTimer);
     this.renderToken++;
+    // Bước hoàn tác có thể được lưu khi lần dựng trước chưa xong: nốt đã mới nhưng tiếng còn cũ.
+    const stale = this.tracks.filter((track) => track.pitch && noteSignature(track.pitch.notes) !== track.pitch.renderedSignature);
+    if (stale.length) stale.forEach((track) => this.scheduleRender(track, 0));
+    else this.finishRenderWaiters();
     this.refreshUi();
   }
 
@@ -480,6 +490,8 @@ export class EditorView {
       toast('Hãy chọn một track trước.');
       return;
     }
+    // Các thao tác dưới đây chốt audio hiện có, nên sửa nốt còn đang dựng phải xong trước.
+    await this.settlePitch(track);
     if (op === 'denoise') {
       await this.denoise(track);
       return;
@@ -612,7 +624,7 @@ export class EditorView {
         return;
       }
       this.pushUndo('Phân tích giọng');
-      track.pitch = { analysis, notes, source: track.channels, outMidi: null };
+      track.pitch = { analysis, notes, source: track.channels, outMidi: null, renderedSignature: noteSignature(notes) };
       this.selectedNotes.clear();
       this.fitPitchView();
       this.refreshUi();
@@ -706,19 +718,33 @@ export class EditorView {
     const token = ++this.renderToken;
     // Vẽ đường cong đích ngay để người dùng thấy kết quả trước khi audio xong.
     track.pitch.outMidi = buildCurve(track.pitch.analysis, track.pitch.notes).outMidi;
-    this.renderDone = new Promise((resolve) => {
-      this.renderTimer = setTimeout(async () => {
-        await this.renderPitch(track, token);
-        resolve();
-      }, delay);
-    });
+    // Mọi người đang chờ đều được báo khi lần dựng mới nhất xong, kể cả ai chờ lần đã bị thay thế.
+    this.renderDone = new Promise((resolve) => this.renderWaiters.push(resolve));
+    this.renderTimer = setTimeout(async () => {
+      await this.renderPitch(track, token);
+      if (token === this.renderToken) this.finishRenderWaiters();
+    }, delay);
     this.invalidate();
     return this.renderDone;
+  }
+
+  finishRenderWaiters() {
+    const waiters = this.renderWaiters;
+    this.renderWaiters = [];
+    waiters.forEach((resolve) => resolve());
+  }
+
+  /** Chờ tới khi audio của track khớp với các nốt đang hiển thị. */
+  async settlePitch(track) {
+    if (!track.pitch) return;
+    if (noteSignature(track.pitch.notes) !== track.pitch.renderedSignature) await this.scheduleRender(track, 0);
+    else await this.renderDone;
   }
 
   async renderPitch(track, token) {
     if (!track.pitch) return;
     setStatus('Đang dựng lại giọng…', 0);
+    const signature = noteSignature(track.pitch.notes);
     try {
       const { channels, outMidi } = await runJob(
         'renderPitch',
@@ -735,6 +761,7 @@ export class EditorView {
       if (token !== this.renderToken || !track.pitch) return;
       track.channels = channels;
       track.pitch.outMidi = outMidi;
+      track.pitch.renderedSignature = signature;
       track.audioBuffer = null;
       if (this.playback) this.startPlayback(this.position());
       this.invalidate();
@@ -998,6 +1025,7 @@ export class EditorView {
   }
 
   async exportMix(format, range) {
+    for (const track of this.tracks) await this.settlePitch(track);
     const from = range === 'selection' && this.selection ? this.selection.start : 0;
     // Thêm đuôi để tiếng vang tắt tự nhiên khi xuất cả dự án.
     const to = range === 'selection' && this.selection ? this.selection.end : this.duration + 1.5;

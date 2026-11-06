@@ -89,6 +89,13 @@ async function main() {
       response.end(wav);
       return;
     }
+    if (request.url === '/slow') {
+      setTimeout(() => {
+        response.setHeader('content-type', 'text/html; charset=utf-8');
+        response.end('<!doctype html><title>Bai cham</title><audio src="/beat.wav" loop autoplay controls></audio>');
+      }, 12000);
+      return;
+    }
     const n = request.url === '/two' ? '2' : '1';
     response.setHeader('content-type', 'text/html; charset=utf-8');
     response.end(`<!doctype html><title>Bai hat thu ${n}</title><body style="background:#123;color:#fff"><h1>Trang nhac thu</h1><audio id="a" src="/beat.wav" loop autoplay controls></audio></body>`);
@@ -222,6 +229,49 @@ async function main() {
   check('Chuyển sang trang khác origin vẫn bắt được âm thanh', nav.kind === 'web' && navLevel > 0.01, `${nav.title}, mức ${navLevel.toFixed(3)}`);
   check('Sang bài khác thì tính lại thời lượng để dò tông', nav.signal < 5, `đã nghe ${nav.signal.toFixed(1)} s`);
 
+  // Sau khi đã bật mic, khung web phải đủ cao để thấy cả thanh điều khiển của trình phát YouTube.
+  await run("__vokara.karaoke.micEverOn = true; __vokara.karaoke.refreshMicUi();");
+  await sleep(300);
+  const hostHeight = await run("return document.getElementById('webHost').clientHeight;");
+  check('Khung web đủ cao cho trình phát video 360 px', hostHeight >= 360, `cao ${hostHeight} px`);
+
+  // --- Toàn màn hình: nút phóng to của trang phải phủ kín cửa sổ, và thoát được ---
+  const fsPage = pageContents();
+  const pageSize = () => fsPage.executeJavaScript('({ w: innerWidth, h: innerHeight, fs: !!document.fullscreenElement })');
+  const beforeFs = await pageSize();
+  // Chạy test qua npx đôi khi làm cửa sổ bị thu nhỏ từ ngoài, và cửa sổ thu nhỏ có kích thước 0.
+  if (win.isMinimized()) {
+    win.restore();
+    await sleep(500);
+  }
+  const fsError = await fsPage.executeJavaScript("document.documentElement.requestFullscreen().then(() => null, (e) => e.name)", true);
+  await sleep(1500);
+  const inFs = await pageSize();
+  const content = win.contentView.getBounds();
+  check('Bấm phóng to trên trang: được cấp quyền, cửa sổ vào toàn màn hình', fsError === null && inFs.fs && win.isFullScreen(), String(fsError));
+  check('Video phủ kín cửa sổ', Math.abs(inFs.w - content.width) <= 2 && Math.abs(inFs.h - content.height) <= 2, `trang ${inFs.w}×${inFs.h}, cửa sổ ${content.width}×${content.height}, trước đó ${beforeFs.w}×${beforeFs.h}`);
+  const fsLevel = await levelAvg(800);
+  check('Âm thanh vẫn được bắt khi toàn màn hình', fsLevel > 0.01, `mức ${fsLevel.toFixed(3)}`);
+  fs.writeFileSync(path.join(OUT, '24-web-fullscreen.png'), (await fsPage.capturePage()).toPNG());
+  fsPage.focus();
+  fsPage.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  fsPage.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+  await sleep(1500);
+  const outFs = await pageSize();
+  check('Phím Esc thoát toàn màn hình, khung web về đúng chỗ', !outFs.fs && !win.isFullScreen() && Math.abs(outFs.w - beforeFs.w) <= 2 && Math.abs(outFs.h - beforeFs.h) <= 2, `trang ${outFs.w}×${outFs.h}`);
+  check('Trang vẫn không xin được quyền khác sau khi mở fullscreen', (await fsPage.executeJavaScript("navigator.mediaDevices.getUserMedia({ audio: true }).then(() => 'granted', (e) => e.name)")) !== 'granted');
+
+  // --- Mạng chậm: rời nguồn web rồi mở lại với trang trả lời rất muộn, nhạc vẫn phải vào đường thu ---
+  await run("document.querySelector('.source-btn[data-source=file]').click();");
+  await sleep(500);
+  await run("document.querySelector('.source-btn[data-source=web]').click();");
+  await sleep(500);
+  await run(`__vokara.karaoke.openWeb('http://127.0.0.1:${port}/slow');`);
+  await sleep(14500);
+  const slow = await run("return { kind: __vokara.engine.live.kind, toast: document.getElementById('toast').hidden ? '' : document.getElementById('toast').textContent, title: __vokara.karaoke.webState.title };");
+  const slowLevel = await levelAvg(1000);
+  check('Trang tải rất chậm vẫn bắt được âm thanh, không báo lỗi', slow.kind === 'web' && slowLevel > 0.01 && !slow.toast.includes('Không lấy được'), `${slow.title}, mức ${slowLevel.toFixed(3)}${slow.toast ? ', ' + slow.toast : ''}`);
+
   // --- App khác: một tiến trình PowerShell thật phát WAV ra loa mặc định ---
   await run("document.querySelector('.source-btn[data-source=system]').click();");
   await sleep(1200);
@@ -271,6 +321,35 @@ async function main() {
   await sleep(500);
   const back = await run("const k = __vokara.karaoke; return { live: __vokara.engine.live.kind, tone: k.beatToneSlider.input.disabled, volume: k.sliders.beatVol.input.disabled, play: document.getElementById('beatPlayBtn').disabled, status: document.getElementById('beatStatus').hidden, label: document.getElementById('openBeatBtn').textContent };");
   check('Quay về File nhạc: mở khoá điều khiển', back.live === null && !back.tone && !back.volume && !back.play && back.status && back.label === 'Mở nhạc nền…', JSON.stringify(back));
+
+  // --- Nút bật tắt mic: nối với đồ thị âm thanh thật, có khoá khi đang ghi ---
+  const micState = () => run("const e = __vokara.engine; return { active: e.micActive, cls: document.getElementById('micBtn').classList.contains('on'), sw: document.getElementById('micSwitch').checked, label: document.getElementById('micBtn').getAttribute('aria-label'), card: !document.getElementById('startCard').hidden, latency: document.getElementById('latencyInfo').textContent };");
+  await run("__vokara.karaoke.micEverOn = true; __vokara.karaoke.refreshMicUi();");
+  const micOn = await micState();
+  check('Mic đang bật: nút và công tắc báo đúng', micOn.active && micOn.cls && micOn.sw && micOn.label === 'Tắt mic', JSON.stringify(micOn));
+  const heldTrack = "window.__micTrack = __vokara.engine.mic.stream.getAudioTracks()[0]; return true;";
+  await run(heldTrack);
+  await run("document.getElementById('micBtn').click();");
+  await sleep(300);
+  const micOff = await micState();
+  const trackState = await run('return window.__micTrack.readyState;');
+  check('Bấm nút: tắt mic thật, luồng thu dừng hẳn', !micOff.active && !micOff.cls && !micOff.sw && micOff.label === 'Bật mic' && trackState === 'ended', trackState);
+  check('Tắt mic không làm thẻ bắt đầu che màn hình', !micOff.card && micOff.latency === 'Mic đang tắt', micOff.latency);
+  await run("__vokara.engine.setMonitor(false); await __vokara.karaoke.toggleMic();");
+  await sleep(600);
+  const micBack = await micState();
+  check('Bấm lần nữa: bật lại mic', micBack.active && micBack.cls && micBack.sw, JSON.stringify({ active: micBack.active }));
+  await run('await __vokara.karaoke.toggleRecord();');
+  const lockedMic = await run("const b = document.getElementById('micBtn'); await __vokara.karaoke.toggleMic(); return { disabled: b.disabled, active: __vokara.engine.micActive };");
+  check('Đang ghi thì không tắt được mic', lockedMic.disabled && lockedMic.active);
+  await run('await __vokara.karaoke.toggleRecord(); __vokara.karaoke.discardTake();');
+  await run("document.getElementById('micBtn').blur(); document.dispatchEvent(new Event('noop'));");
+  win.webContents.focus();
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'M' });
+  win.webContents.sendInputEvent({ type: 'char', keyCode: 'M' });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'M' });
+  await sleep(400);
+  check('Phím M bật tắt mic', (await micState()).active === false);
 
   const realErrors = consoleErrors.filter((message) => !/Autofill|Electron Security/.test(message));
   check('Không có lỗi console', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));

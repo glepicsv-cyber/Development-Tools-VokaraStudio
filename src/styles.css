@@ -139,6 +139,11 @@ input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px;
 .round-btn.playing .icon-play { display: none; }
 .round-btn.playing .icon-pause { display: block; }
 #beatPlayBtn, #edPlayBtn { --ring: var(--raw); --ring-glow: rgba(34, 211, 238, 0.55); }
+.round-btn.mic { color: var(--muted); }
+.round-btn.mic .icon-mic-on { display: none; }
+.round-btn.mic.on { --ring: var(--ok); --ring-glow: rgba(74, 222, 128, 0.55); color: var(--ok); }
+.round-btn.mic.on .icon-mic-on { display: block; }
+.round-btn.mic.on .icon-mic-off { display: none; }
 .round-btn.record { --ring: var(--accent-2); --ring-glow: rgba(255, 122, 24, 0.55); color: var(--rec); }
 .round-btn.record svg { filter: drop-shadow(0 0 4px rgba(255, 82, 82, 0.9)); }
 .round-btn.record.active { background: var(--rec); color: #fff; --ring: var(--rec); animation: pulse 1.4s ease-in-out infinite; }
@@ -170,6 +175,9 @@ input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px;
 .source-hint { color: var(--raw); font-size: 12px; line-height: 1.35; min-width: 0; opacity: 0.88; }
 .source-hint.warn { color: var(--accent); opacity: 1; }
 .web-panel { flex: 3 1 0; min-height: 220px; display: flex; flex-direction: column; border-bottom: 1px solid var(--line); }
+/* Trình phát YouTube cao khoảng 360 px: thanh điều khiển phải nằm trong khung, không bị khuất. */
+.web-panel:not([hidden]) + .roll-wrap { flex: 1 1 0; min-height: 170px; }
+.web-panel:not([hidden]) + .roll-wrap:has(.start-card:not([hidden])) { min-height: 240px; }
 .web-nav { display: flex; align-items: center; gap: 6px; padding: 7px 12px; background: var(--bg-2); border-bottom: 1px solid var(--line); }
 .web-nav-btn { width: 30px; height: 30px; padding: 0; display: grid; place-items: center; background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--text); flex: none; }
 .web-nav-btn:hover:not(:disabled) { border-color: var(--raw); box-shadow: 0 0 8px rgba(34, 211, 238, 0.45); }

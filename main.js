@@ -22,6 +22,8 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 let mainWindow = null;
 let webView = null;
 let webPlaying = false;
+let webBounds = null;
+let webFullscreen = false;
 let armedCapture = null;
 
 function isWebUrl(url) {
@@ -74,11 +76,31 @@ function configurePermissions() {
 
   // Trang web mở trong ứng dụng dùng phiên riêng và không được cấp quyền nào.
   const web = session.fromPartition(WEB_PARTITION);
-  web.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-  web.setPermissionCheckHandler(() => false);
+  // Chỉ cho toàn màn hình, để nút phóng to của video hoạt động. Mic, camera, vị trí đều bị chặn.
+  web.setPermissionRequestHandler((_contents, permission, callback) => callback(permission === 'fullscreen'));
+  web.setPermissionCheckHandler((_contents, permission) => permission === 'fullscreen');
   web.setDevicePermissionHandler(() => false);
   web.on('will-download', (event) => event.preventDefault());
   web.setUserAgent(app.userAgentFallback.replace(/\s(?:Electron|[\w-]*[Vv]okara[\w-]*)\/\S+/g, ''));
+}
+
+/** Khung web phủ kín cửa sổ khi xem toàn màn hình, nếu không thì nằm đúng chỗ giao diện yêu cầu. */
+function applyWebBounds() {
+  if (!webView || !mainWindow || mainWindow.isDestroyed()) return;
+  if (webFullscreen) {
+    const { width, height } = mainWindow.contentView.getBounds();
+    webView.setBounds({ x: 0, y: 0, width, height });
+  } else if (webBounds) {
+    webView.setBounds(webBounds);
+  }
+}
+
+function setWebFullscreen(on) {
+  webFullscreen = on;
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setFullScreen(on);
+  applyWebBounds();
+  // Windows còn đổi kích thước thêm một nhịp sau sự kiện cuối, mà không báo lại.
+  for (const delay of [100, 400, 1000]) setTimeout(applyWebBounds, delay);
 }
 
 function sendWebState() {
@@ -117,6 +139,15 @@ function ensureWebView() {
   contents.on('will-navigate', (event, url) => {
     if (!isWebUrl(url)) event.preventDefault();
   });
+  contents.on('enter-html-full-screen', () => setWebFullscreen(true));
+  contents.on('leave-html-full-screen', () => setWebFullscreen(false));
+  // Esc thoát toàn màn hình ngay cả khi trang không tự xử lý phím này.
+  contents.on('before-input-event', (event, input) => {
+    if (webFullscreen && input.type === 'keyDown' && input.key === 'Escape') {
+      event.preventDefault();
+      contents.executeJavaScript('document.fullscreenElement && document.exitFullscreen()', true).catch(() => {});
+    }
+  });
   contents.on('media-started-playing', () => {
     webPlaying = true;
     sendWebState();
@@ -141,6 +172,8 @@ function closeWebView() {
   const view = webView;
   webView = null;
   webPlaying = false;
+  webBounds = null;
+  if (webFullscreen) setWebFullscreen(false);
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.contentView.removeChildView(view);
     sendWebState();
@@ -169,12 +202,13 @@ function registerWebIpc() {
   ipcMain.handle('web-close', () => closeWebView());
   ipcMain.handle('web-bounds', (_event, rect) => {
     if (!webView || !rect) return;
-    webView.setBounds({
+    webBounds = {
       x: Math.round(rect.x),
       y: Math.round(rect.y),
       width: Math.max(0, Math.round(rect.width)),
       height: Math.max(0, Math.round(rect.height)),
-    });
+    };
+    applyWebBounds();
   });
   ipcMain.handle('web-visible', (_event, visible) => {
     if (webView) webView.setVisible(!!visible);
@@ -284,6 +318,8 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
   mainWindow = win;
+  // Đổi kích thước diễn ra sau lệnh toàn màn hình, nên phải đặt lại khung web theo.
+  for (const name of ['enter-full-screen', 'leave-full-screen', 'resize', 'restore']) win.on(name, applyWebBounds);
   win.on('closed', () => {
     closeWebView();
     if (mainWindow === win) mainWindow = null;

@@ -14,6 +14,8 @@ Phần mềm chỉnh giọng và biên tập âm thanh trên Windows: chỉnh ca
 3. Chọn một **giọng mẫu**, chọn **loại giọng** cho đúng với người hát, rồi bấm **Space** để phát.
 4. Bấm nút đỏ (phím **R**) để ghi âm. Khi dừng, chọn **Lưu bản mix** hoặc **Mở trong Biên tập**.
 
+Nút micro ở thanh phát, công tắc ở mục **Mic** hoặc phím **M** bật tắt mic bất cứ lúc nào, trừ khi đang ghi âm.
+
 | Điều khiển | Tác dụng |
 |---|---|
 | Tốc độ bắt nốt | 0 ms: bẻ nốt tức thì, nghe như robot. 100–200 ms: tự nhiên, giữ luyến láy |

@@ -11,6 +11,8 @@ import { normalizeWebInput } from './web-url.js';
 
 const SETTINGS_KEY = 'vokara.karaoke.v1';
 
+const WEB_CAPTURE_ATTEMPTS = 3;
+const WEB_CAPTURE_RETRY_MS = 1500;
 const LIVE_LEVEL_POINTS = 400;
 const OVERVIEW_BAR_WIDTH = 5;
 const OVERVIEW_BAR_STEP = 8;
@@ -329,6 +331,8 @@ export class KaraokeView {
   bindEvents() {
     const s = this.state;
     $('startMicBtn').addEventListener('click', () => this.toggleMicFromCard());
+    $('micBtn').addEventListener('click', () => this.toggleMic());
+    $('micSwitch').addEventListener('change', () => this.toggleMic());
     $('startBeatBtn').addEventListener('click', () => this.openBeat());
     $('openBeatBtn').addEventListener('click', () => this.openBeat());
     $('openLyricsBtn').addEventListener('click', () => this.openLyrics());
@@ -507,9 +511,20 @@ export class KaraokeView {
     fill($('outputSelect'), outputs, this.state.outputId, 'Loa');
   }
 
+  async toggleMic() {
+    if (this.engine.recording) return;
+    if (this.engine.micActive) {
+      this.engine.disableMic();
+      this.refreshMicUi();
+    } else {
+      await this.startMic();
+    }
+  }
+
   async startMic() {
     try {
       await this.engine.enableMic(this.state.inputId);
+      this.micEverOn = true;
       this.applyAllToEngine();
       await this.refreshDevices();
       if (this.state.outputId) await this.engine.setOutputDevice(this.state.outputId).catch(() => {});
@@ -534,12 +549,19 @@ export class KaraokeView {
     const hasMic = this.engine.micActive;
     $('startMicBtn').textContent = hasMic ? 'Mic đã bật' : 'Bật mic';
     $('startMicBtn').disabled = hasMic;
+    const micBtn = $('micBtn');
+    micBtn.classList.toggle('on', hasMic);
+    micBtn.setAttribute('aria-pressed', String(hasMic));
+    micBtn.title = hasMic ? 'Tắt mic (M)' : 'Bật mic (M)';
+    micBtn.setAttribute('aria-label', hasMic ? 'Tắt mic' : 'Bật mic');
+    $('micSwitch').checked = hasMic;
     this.refreshStartCard();
     this.renderLatency();
   }
 
   refreshStartCard() {
-    $('startCard').hidden = this.engine.micActive;
+    // Thẻ này chỉ để bắt đầu: người dùng chủ động tắt mic thì không hiện lại che màn hình.
+    $('startCard').hidden = this.engine.micActive || !!this.micEverOn;
     $('startBeatBtn').hidden = !!this.engine.beat.buffer || this.isLive;
   }
 
@@ -547,7 +569,7 @@ export class KaraokeView {
     const breakdown = this.engine.latencyBreakdown();
     const info = $('latencyInfo');
     if (!breakdown || !this.engine.micActive) {
-      info.textContent = 'Chưa bật mic';
+      info.textContent = this.micEverOn ? 'Mic đang tắt' : 'Chưa bật mic';
       return;
     }
     const ms = (v) => `${Math.round(v * 1000)} ms`;
@@ -684,24 +706,37 @@ export class KaraokeView {
       return;
     }
     window.vokaraHost.webOpen(url);
-    this.ensureWebCapture();
   }
 
-  /** Khung web chưa tải trang thì chưa bắt được gì, nên chỉ bắt đầu khi mở trang đầu tiên. */
+  /**
+   * Bắt âm thanh của khung web. Phải chờ trang đã vào khung: bắt sớm hơn thì Chromium
+   * đứng chờ rồi báo hết giờ nếu mạng chậm. Lần đầu lỗi thì tự thử lại vì thường chỉ do tải chậm.
+   */
   async ensureWebCapture() {
-    if (this.source !== 'web' || this.engine.live.kind || this.webCapturing) return;
+    if (this.source !== 'web' || this.engine.live.kind || this.webCapturing || !this.webHasPage()) return;
     const token = this.sourceToken;
     this.webCapturing = true;
+    let failure = null;
     try {
       await this.engine.startLive('web');
       if (token !== this.sourceToken) return;
+      this.webCaptureAttempts = 0;
       this.applyAllToEngine();
       this.engine.setLiveMuted(!this.viewVisible);
     } catch (error) {
-      if (token !== this.sourceToken) return;
-      toast(`Không lấy được âm thanh của trang: ${error.message}`, { error: true, ms: 7000 });
+      failure = error;
     } finally {
       this.webCapturing = false;
+    }
+    if (!failure || token !== this.sourceToken) return;
+    this.webCaptureAttempts = (this.webCaptureAttempts ?? 0) + 1;
+    if (this.webCaptureAttempts < WEB_CAPTURE_ATTEMPTS) {
+      setTimeout(() => {
+        if (token === this.sourceToken) this.ensureWebCapture();
+      }, WEB_CAPTURE_RETRY_MS);
+    } else {
+      this.webCaptureAttempts = 0;
+      toast(`Không lấy được âm thanh của trang: ${failure.message}. Nhạc vẫn phát nhưng chưa thu và đổi tông được, hãy bấm tải lại trang.`, { error: true, ms: 8000 });
     }
   }
 
@@ -727,6 +762,7 @@ export class KaraokeView {
     }
     this.syncWebVisibility();
     this.refreshTransport();
+    this.ensureWebCapture();
   }
 
   syncWebBounds() {
@@ -953,6 +989,9 @@ export class KaraokeView {
     $('recordBtn').classList.toggle('active', !!this.engine.recording);
     // Đổi tông hay tốc độ giữa lúc ghi sẽ làm lệch bản thu so với nhạc.
     const recording = !!this.engine.recording;
+    // Tắt mic giữa lúc ghi sẽ làm bản thu mất tiếng mà người dùng không biết.
+    $('micBtn').disabled = recording;
+    $('micSwitch').disabled = recording;
     this.beatToneSlider.input.disabled = recording || this.source === 'system';
     for (const slider of [this.beatTempoSlider, this.beatVocalSlider]) slider.input.disabled = recording || this.isLive;
   }
@@ -1141,7 +1180,7 @@ export class KaraokeView {
     const needle = $('centsNeedle');
     if (!live || status.inMidi <= 0) {
       if (name.textContent !== '–') name.textContent = '–';
-      const text = live ? 'Đang chờ tiếng hát' : 'Chưa bật mic';
+      const text = live ? 'Đang chờ tiếng hát' : this.micEverOn ? 'Mic đang tắt' : 'Chưa bật mic';
       if (sub.textContent !== text) sub.textContent = text;
       needle.style.opacity = 0;
       return;
