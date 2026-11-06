@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <title>Vokara Studio</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' app:; script-src 'self' app:; style-src 'self' 'unsafe-inline' app:; img-src 'self' data:; media-src 'self' blob:; worker-src 'self' app: blob:; connect-src 'self' app:">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><img class="brand-mark" src="assets/logo.png" alt="" width="36" height="36">Vokara Studio</div>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="karaoke" role="tab" aria-selected="true">Hát karaoke</button>
+      <button class="tab" data-tab="editor" role="tab" aria-selected="false">Biên tập</button>
+    </nav>
+    <div class="topbar-right">
+      <label class="inline-field">Loa
+        <select id="outputSelect" aria-label="Thiết bị phát"></select>
+      </label>
+    </div>
+  </header>
+
+  <main id="karaokeView" class="view karaoke">
+    <section class="stage">
+      <div class="source-bar">
+        <span class="source-label" id="sourceLabel">Nguồn nhạc</span>
+        <div class="source-group" role="group" aria-labelledby="sourceLabel">
+          <button class="source-btn active" data-source="file" aria-pressed="true">File nhạc</button>
+          <button class="source-btn" data-source="web" aria-pressed="false">Trang web</button>
+          <button class="source-btn" data-source="system" aria-pressed="false">App khác</button>
+        </div>
+        <span class="source-hint" id="sourceHint"></span>
+      </div>
+      <div class="web-panel" id="webPanel" hidden>
+        <form class="web-nav" id="webForm">
+          <button type="button" class="web-nav-btn" id="webBack" title="Quay lại" aria-label="Quay lại" disabled>
+            <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" /></svg>
+          </button>
+          <button type="button" class="web-nav-btn" id="webForward" title="Đi tới" aria-label="Đi tới" disabled>
+            <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" /></svg>
+          </button>
+          <button type="button" class="web-nav-btn" id="webReload" title="Tải lại" aria-label="Tải lại">
+            <svg viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.2-5.1M19 4v4h-4" /></svg>
+          </button>
+          <input id="webAddress" type="text" spellcheck="false" autocomplete="off" aria-label="Địa chỉ hoặc tên bài hát" placeholder="Dán link hoặc gõ tên bài để tìm trên YouTube">
+          <button type="submit" class="btn small">Mở</button>
+        </form>
+        <div class="web-host" id="webHost">
+          <div class="web-home" id="webHome">
+            <h2>Mở nhạc từ trang web</h2>
+            <p>Bài hát phát ngay trong khung này và đi vào bản thu, không cần tải file.</p>
+            <div class="web-sites" id="webSites">
+              <button class="site-btn" data-url="https://www.youtube.com"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="5" width="22" height="14" rx="4" fill="#ff2d2d"/><path d="M10 9v6l5-3z" fill="#fff"/></svg>YouTube</button>
+              <button class="site-btn zing" data-url="https://zingmp3.vn"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="#c77dff" stroke-width="3"/><circle cx="12" cy="12" r="3.5" fill="#4ade80"/></svg>Zing MP3</button>
+              <button class="site-btn nct" data-url="https://www.nhaccuatui.com"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c4 5 7 8.300 7 12a7 7 0 0 1-14 0c0-3.700 3-7 7-12z" fill="#22c1ee"/><path d="M13 9v6.500a2 2 0 1 1-1.500-1.900V9z" fill="#fff"/></svg>NhacCuaTui</button>
+              <button class="site-btn sc" data-url="https://soundcloud.com"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V9.500a6 6 0 0 1 11 3.100 3 3 0 0 1 1 5.400zM7 18V10h1v8zM5 18v-6h1v6zM3 18v-4h1v4z" fill="#ff8a1f"/></svg>SoundCloud</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="roll-wrap">
+        <canvas id="pitchRoll"></canvas>
+        <div class="note-readout" id="noteReadout" aria-live="off">
+          <div class="note-name" id="noteName">–</div>
+          <div class="cents-meter" aria-hidden="true"><i class="cents-center"></i><i class="cents-needle" id="centsNeedle"></i></div>
+          <div class="note-sub" id="noteSub">Chưa có tiếng hát</div>
+        </div>
+        <div class="roll-legend" aria-hidden="true">
+          <span><i class="swatch raw"></i>Giọng hát</span>
+          <span><i class="swatch tuned"></i>Sau khi chỉnh</span>
+        </div>
+        <div class="start-card" id="startCard">
+          <h1>Sẵn sàng hát chưa?</h1>
+          <p>Đeo tai nghe để tiếng loa không lọt lại vào mic, rồi bật mic và chọn nguồn nhạc phía trên.</p>
+          <div class="start-actions">
+            <button class="btn primary" id="startMicBtn">Bật mic</button>
+            <button class="btn" id="startBeatBtn">Mở nhạc nền…</button>
+          </div>
+        </div>
+      </div>
+      <div class="lyrics" id="lyrics" hidden>
+        <div class="lyric-now" id="lyricNow"></div>
+        <div class="lyric-next" id="lyricNext"></div>
+      </div>
+      <div class="transport">
+        <div class="transport-buttons">
+          <button class="round-btn" id="beatPlayBtn" title="Phát / tạm dừng (Space)" aria-label="Phát hoặc tạm dừng">
+            <svg viewBox="0 0 24 24" class="icon-play"><path d="M7 4.5v15l12-7.5z"/></svg>
+            <svg viewBox="0 0 24 24" class="icon-pause"><path d="M6.5 4.5h4v15h-4zM13.5 4.5h4v15h-4z"/></svg>
+          </button>
+          <button class="round-btn" id="beatStopBtn" title="Về đầu bài" aria-label="Về đầu bài">
+            <svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
+          </button>
+          <button class="round-btn record" id="recordBtn" title="Ghi âm (R)" aria-label="Ghi âm">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/></svg>
+          </button>
+        </div>
+        <div class="beat-info">
+          <div class="beat-title">
+            <button class="link-btn" id="openBeatBtn">Mở nhạc nền…</button>
+            <span class="time" id="beatTime">0:00 / 0:00</span>
+          </div>
+          <canvas id="beatOverview" title="Bấm để tua" aria-label="Thanh tua nhạc nền"></canvas>
+        </div>
+        <div class="transport-mix">
+          <div id="beatVolumeSlot"></div>
+          <div id="vocalVolumeSlot"></div>
+        </div>
+      </div>
+      <div class="take-bar" id="takeBar" hidden>
+        <span id="takeInfo"></span>
+        <div class="take-actions">
+          <button class="btn primary" id="takeExportBtn">Lưu bản mix…</button>
+          <button class="btn" id="takeEditBtn">Mở trong Biên tập</button>
+          <button class="btn ghost" id="takeDiscardBtn">Bỏ bản thu</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel" aria-label="Điều chỉnh">
+      <section class="panel-section">
+        <h2>Giọng mẫu</h2>
+        <div class="chips" id="presetChips"></div>
+      </section>
+
+      <section class="panel-section">
+        <div class="section-head">
+          <h2>Chỉnh cao độ</h2>
+          <label class="switch"><input type="checkbox" id="tuneEnabled" checked><span></span><em class="sr">Bật chỉnh cao độ</em></label>
+        </div>
+        <div class="field-label">Tông <span class="muted" id="keyHint"></span></div>
+        <div class="key-grid" id="keyGrid"></div>
+        <div class="row-2">
+          <select id="scaleSelect" aria-label="Âm giai"></select>
+          <button class="btn small" id="detectKeyBtn" disabled>Dò theo nhạc</button>
+        </div>
+        <div id="tuneSliders"></div>
+        <label class="field">Loại giọng
+          <select id="voiceSelect"></select>
+        </label>
+      </section>
+
+      <section class="panel-section">
+        <h2>Hiệu ứng giọng</h2>
+        <div id="fxSliders"></div>
+      </section>
+
+      <section class="panel-section">
+        <h2>Nhạc nền</h2>
+        <div id="beatSliders"></div>
+        <div class="beat-note" id="beatStatus" hidden></div>
+        <button class="btn small wide" id="openLyricsBtn">Mở lời bài hát (.lrc)…</button>
+      </section>
+
+      <section class="panel-section">
+        <h2>Mic</h2>
+        <label class="field">Thiết bị
+          <select id="inputSelect"></select>
+        </label>
+        <div id="micSliders"></div>
+        <label class="check"><input type="checkbox" id="monitorToggle" checked> Nghe giọng mình qua tai nghe</label>
+        <div class="latency" id="latencyInfo">Chưa bật mic</div>
+      </section>
+    </aside>
+  </main>
+
+  <main id="editorView" class="view editor" hidden>
+    <div class="ed-toolbar">
+      <div class="tool-group">
+        <button class="round-btn small" id="edPlayBtn" title="Phát / dừng (Space)" aria-label="Phát hoặc dừng">
+          <svg viewBox="0 0 24 24" class="icon-play"><path d="M7 4.5v15l12-7.5z"/></svg>
+          <svg viewBox="0 0 24 24" class="icon-pause"><path d="M6.5 4.5h4v15h-4zM13.5 4.5h4v15h-4z"/></svg>
+        </button>
+        <button class="round-btn small" id="edHomeBtn" title="Về đầu (Home)" aria-label="Về đầu"><svg viewBox="0 0 24 24"><path d="M6 5h2.5v14H6zM19 5v14L9.5 12z"/></svg></button>
+        <span class="time big" id="edTime">0:00.00</span>
+        <label class="check tight" title="Phát lặp vùng chọn"><input type="checkbox" id="edLoop"> Lặp</label>
+      </div>
+      <div class="tool-group">
+        <button class="btn small" id="edAddTrack">Thêm track…</button>
+        <button class="btn small" id="edUndo" title="Ctrl+Z">Hoàn tác</button>
+        <button class="btn small" id="edRedo" title="Ctrl+Y">Làm lại</button>
+      </div>
+      <div class="tool-group" id="edEditTools">
+        <button class="btn small" data-op="cut" title="Ctrl+X: cắt và kéo phần sau lên">Cắt</button>
+        <button class="btn small" data-op="copy" title="Ctrl+C">Chép</button>
+        <button class="btn small" data-op="paste" title="Ctrl+V: chèn tại con trỏ">Dán</button>
+        <button class="btn small" data-op="silence" title="Delete: làm câm, giữ nguyên thời gian">Câm</button>
+        <button class="btn small" data-op="keep" title="Chỉ giữ lại vùng chọn">Giữ vùng</button>
+        <span class="tool-sep"></span>
+        <button class="btn small" data-op="fadeIn">Fade vào</button>
+        <button class="btn small" data-op="fadeOut">Fade ra</button>
+        <button class="btn small" data-op="normalize" title="Đưa đỉnh về -1 dB">Chuẩn hoá</button>
+        <button class="btn small" data-op="reverse">Đảo</button>
+        <span class="tool-sep"></span>
+        <button class="btn small" data-op="gainDown" title="Giảm 3 dB">−3 dB</button>
+        <button class="btn small" data-op="gainUp" title="Tăng 3 dB">+3 dB</button>
+        <button class="btn small" data-op="denoise" title="Khử nhiễu nền của cả track">Khử nhiễu</button>
+      </div>
+      <div class="tool-group end">
+        <button class="btn primary small" id="edExport">Xuất file…</button>
+      </div>
+    </div>
+
+    <div class="ed-timeline" id="edTimeline">
+      <div class="ed-headers" id="edHeaders"></div>
+      <div class="ed-canvas-wrap" id="edCanvasWrap">
+        <canvas id="edCanvas"></canvas>
+        <div class="playhead" id="edPlayhead"></div>
+        <div class="ed-empty" id="edEmpty">
+          <h1>Chưa có track nào</h1>
+          <p>Kéo thả file âm thanh vào đây, hoặc mở một file để bắt đầu.</p>
+          <button class="btn primary" id="edEmptyOpen">Mở file âm thanh…</button>
+        </div>
+      </div>
+    </div>
+    <div class="ed-hscroll"><input type="range" id="edScroll" min="0" max="1000" value="0" aria-label="Cuộn dòng thời gian"></div>
+
+    <div class="ed-lower">
+      <div class="ed-side">
+        <div class="side-tabs" role="tablist">
+          <button class="side-tab active" data-side="pitch">Cao độ</button>
+          <button class="side-tab" data-side="fx">Hiệu ứng</button>
+        </div>
+        <div class="side-pane" id="sidePitch">
+          <div class="row-2">
+            <select id="edKey" aria-label="Tông"></select>
+            <select id="edScale" aria-label="Âm giai"></select>
+          </div>
+          <div id="edPitchSliders"></div>
+          <div class="side-buttons">
+            <button class="btn small primary" id="edAnalyze">Phân tích giọng</button>
+            <button class="btn small" id="edAutoFix" disabled>Tự chỉnh về tông</button>
+            <button class="btn small" id="edDetectKey" disabled>Dò tông giọng</button>
+            <button class="btn small ghost" id="edResetPitch" disabled>Đặt lại nốt</button>
+          </div>
+          <p class="hint">Kéo nốt lên xuống để đổi cao độ, giữ Alt để chỉnh lẻ từng cent. Shift+bấm chọn nhiều nốt.</p>
+        </div>
+        <div class="side-pane" id="sideFx" hidden>
+          <div id="edFxSliders"></div>
+        </div>
+      </div>
+      <div class="ed-pitch-wrap" id="edPitchWrap">
+        <canvas id="edPitch" tabindex="0" aria-label="Bảng sửa nốt"></canvas>
+        <div class="playhead" id="edPitchPlayhead"></div>
+        <div class="pitch-empty" id="edPitchEmpty">Chọn một track giọng hát rồi bấm “Phân tích giọng”.</div>
+      </div>
+    </div>
+  </main>
+
+  <div class="status-bar" id="statusBar" hidden>
+    <span id="statusText"></span>
+    <div class="status-progress"><i id="statusFill"></i></div>
+  </div>
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <dialog id="exportDialog" class="dialog">
+    <form method="dialog">
+      <h2>Xuất file</h2>
+      <label class="field">Định dạng
+        <select id="exportFormat">
+          <option value="wav24">WAV 24-bit (chất lượng gốc)</option>
+          <option value="wav16">WAV 16-bit (như CD)</option>
+          <option value="mp3-320">MP3 320 kbps</option>
+          <option value="mp3-192">MP3 192 kbps (file nhỏ)</option>
+        </select>
+      </label>
+      <label class="field">Phạm vi
+        <select id="exportRange">
+          <option value="all">Toàn bộ dự án</option>
+          <option value="selection">Chỉ vùng đang chọn</option>
+        </select>
+      </label>
+      <div class="dialog-actions">
+        <button class="btn ghost" value="cancel">Huỷ</button>
+        <button class="btn primary" value="ok">Xuất…</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

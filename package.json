@@ -1,0 +1,22 @@
+{
+  "name": "vokara-studio",
+  "productName": "Vokara Studio",
+  "version": "1.0.0",
+  "description": "Chỉnh cao độ giọng hát thời gian thực cho karaoke và biên tập audio track trên PC",
+  "main": "main.js",
+  "type": "commonjs",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/unit/*.test.js",
+    "test:e2e": "electron test/e2e/run.cjs && electron test/e2e/live.cjs",
+    "icon": "electron scripts/make-icon.cjs",
+    "package": "node scripts/package.cjs"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^45.2.3",
+    "lamejs": "^1.2.1"
+  }
+}
